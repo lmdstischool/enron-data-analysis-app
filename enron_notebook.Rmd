@@ -1,0 +1,2203 @@
+---
+title: "Enron Project Notebook"
+output: 
+  html_document:
+    df_print: paged
+author: "Loic Martins"
+date: "2024-10-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Index 
+  
+**1 - Preparation**  
+	1.1 - Packages and Libraries Installation  
+	1.2 - DataFrame creation  
+	1.3 - Specific function creation  
+		1.3.1 - Frequency Table creation  
+		1.3.2 - Email error checking  
+		1.3.3 - Status Analysis  
+	
+**2 - Data Discovery**  
+
+**3 - Data Exploration and Cleaning**  
+	3.1 - Missing Values  
+	3.2 - Data type, outliers, data typos/misspelling  
+		3.2.1 - Employeelist DataFrame - Email Columns  
+		3.2.2 - Employeelist DataFrame - Status Column  
+		3.2.3 - Message DataFrame - Date  
+		3.2.4 - Recipient Info DataFrame - rvalue  
+		3.2.5 - Recipient Info DataFrame - rtype  
+
+**4 - Transformation**   
+	4.1 - Variable selection   
+	4.2 - Eron DataFrame creation   
+		4.2.1 - Transform the 3 DataFrames  
+		4.2.2 - Create the Enron DataFrame  
+
+**5 - Analysis**   
+	5.1 - Who is Enron's most active employee?  
+		5.1.1 - Sender Enron's Most Active Employees  
+		5.1.2 - Recipient Enron's Most Active Employees  
+		5.1.3 - Enron's most active employees overall  
+	5.2 - In which status are we most likely to be active, in terms of sending and receiving e-mail?  
+		5.2.1 - Visualize the activity for each status  
+		5.2.2 - Size of each status  
+		5.2.3 - Compare the size of the status and its activity  
+		5.2.4 - Check the distribution of each status  
+		5.2.5 - In which status are we most likely to be active, in terms of sending and receiving e-mail?  
+	5.3 - When was e-mail activity highest? And why?  
+		5.3.1 - Compare the global activity  
+		5.3.2 - Compare monthly activity between years  
+	5.4 - Analysis of the content of the messages  
+		5.4.1 - Text Processing  
+		5.4.2 - Most frequently used words  
+		5.4.3 - Number of words per year  
+		5.4.4 - Subjects Analysis  
+  
+---
+  
+# Introduction
+  
+**Enron** was formed in 1985 and was one of the most famous energy and commodities US company. Enron had almost 20,000 employees and revenues of nearly $101 billion in 2000. But, Enron is also known as one of the largest corporate failures in U.S. history Indeed, in 2001, the company was at the center of an “accounting scandal” during which massive accounting fraud was revealed.
+
+This is why an analysis of employee e-mails sent between 1999 and 2002 can be of interest. 
+
+To do this, we will go through various stages:  
+  1. **Preparation**: Project prerequisites.   
+  2. **Data Discovery**: Understand the data set.  
+  3. **Data Exploration and Cleaning**: Explore the different variables and clean the data.  
+  4. **Data Transformation**: Transform and prepare the data for analysis part.  
+  5. **Analysis** : Analyze data to answer various questions:  
+    - Analysis of employee e-mail activity: Who is Enron's most active employee?  
+    - Analysis of the relationship between status and e-mail activity: In which status are we most likely to be active, in terms of sending and receiving e-mail?  
+    - Analysis of e-mail activity over time: When was e-mail activity highest? And why?  
+    - Analysis of the content of the messages: What were the Enron employees talking about?  
+  6. **Shiny application creation**: Allow the user to interact with the data.  
+  
+  
+---
+     
+     
+    
+# 1 - Preparation
+
+## 1.1 -Packages and Libraries Installation
+
+Before we begin, we can install the packages and libraries we will be using:
+  
+```{r, warning=FALSE,message=FALSE}
+
+library(rlist)
+library(stringr)
+library(tidyverse)
+library(dplyr)
+library(ggplot2) 
+library(lubridate)
+library(textclean)
+library(bubbles)
+library(hrbrthemes)
+library(gridExtra)
+library(reshape2) 
+library(scales)
+library(gghighlight)
+library(wordcloud)
+library(tm)
+library(tidytext)
+library(plyr)
+
+```
+
+## 1.2 - DataFrame creation
+
+Load data and create 3 specifics DataFrame for each table:
+   
+```{r}
+
+load('Enron.Rdata')
+
+employee_df <- employeelist
+message_df <- message
+recipient_df <- recipientinfo
+
+```
+ 
+## 1.3 - Specific function creation
+
+We'll be using different custom functions at different stages of our work, so we've created different functions with different purposes:
+
+### 1.3.1 - Frequency Table creation 
+  
+```{r}
+
+# We will use this function to create frequency table
+# It takes as parameters:  
+# - column = table$column or variable (e.g. year) format
+# - order = TRUE for decreasing order and FALSE for increasing order
+# The function returns an ordered table of frequencies in Dataframe format
+
+frequency_table <- function(column, order){
+  
+  frequency_table <- table(column)
+  frequency_table <- as.data.frame(frequency_table)
+  frequency_table <- frequency_table[order(frequency_table$Freq, decreasing = order),]
+  frequency_table
+
+}
+
+```
+  
+  
+### 1.3.2 - E-mail error checking
+  
+```{r}
+
+# We will use this function for every column e-mail in the different table
+# It takes as parameters:  
+# - table = the table name
+# - column = the column name -> '...'
+# Return a DataFrame with the rows where we have a problem with the spelling of the e-mail
+# e.g. email_check(employee_df, 'Email_id')
+
+email_check <- function(table, column){
+  
+  # We iterate through the Email_id column to create a list with all the FALSE values that represent an error in the spelling of the e-mail. 
+  regex_result <- list()
+  pattern = '^(?!.*[-_.]{2})[\\w\\-_.&]*[\\@][\\w\\-]*[\\w+\\.]*[\\.][a-zA-Z]+'
+    
+  for (email in table[column]) {
+    result <- str_detect(email, pattern)
+    regex_result <- append(regex_result, result)
+  }
+  
+  # We search all FALSE terms in the list and return the position that represent the row number in the data set
+  row_list <- c(which(regex_result %in% c('FALSE')))
+  
+  # Using the position we print where we have an error in the spelling of the e-mail
+  # And we filter by removing the empty cell because it was labeled as FALSE
+  table_df <- table[row_list, ]
+  table_df[table_df[column] != '', ]
+  head(table_df, 10)
+}
+
+```
+  
+  
+### 1.3.3 - Status Analysis
+   
+```{r}
+
+# We will use this function to analyze the mean and median for each Enron employee status
+# It takes as parameters: 
+# - DataFrame: the dataframe we need to calculate the mean and median
+# - status : the name of the status
+# This function return a DataFrame containing the status, the mean and the median
+
+status_analysis <- function(dataframe, status){
+  
+  # Create an empty DataFrame
+  status_analysis_df = data.frame()
+  
+  # Add the status
+  status_analysis_df[1, 'Status'] <- status
+  
+  # Add the Median and the Mean
+  status_analysis_df['Median'] <- ceiling(median(dataframe[dataframe$Status == status, 'Emails']))
+  status_analysis_df['Mean'] <- ceiling(mean(dataframe[dataframe$Status == status, 'Emails']))
+  status_analysis_df <- as.data.frame(status_analysis_df)
+
+}
+
+```
+   
+  
+---
+   
+   
+# 2 - Data Discovery
+  
+To start, we have 3 DataFrame:  
+1. employeelist : the list of the employees with their personal information.  
+2. message : the sender of the message and the message.  
+3. recipientinfo : the recipient of the message.  
+  
+The data was already pre-processed but we can explore it and see if we can make any change for the analysis part.
+  
+First, we can print all the variable names for each DataFrame to understand what kind of information we have:
+   
+```{r}
+
+cat('The variables for the Employee List DataFrame are: ', colnames(employee_df), '.\n',
+    'The variables for the Message DataFrame are: ', colnames(message_df), '.\n',
+    'The variables for the Recipient DataFrame table are: ', colnames(recipient_df), '.')
+```
+   
+It would then be interesting to know the size of the various DataFrames and compare them with the use of the ID for each DataFrame:  
+  - The MID for the Message table  
+  - The MID and RID for the Recipient Info tables  
+  - The e-mail ID for the Employee List table  
+  
+```{r}
+
+cat('The number of unique Email_id value for the Employee List DataFrame is',n_distinct(employee_df$Email_id),'.\n',
+    'The number of rows for the Employee List DataFrame is',nrow(employee_df),'.\n',
+    'The number of MID unique value for the Message DataFrame is',n_distinct(message_df$mid),'.\n',
+    'The number of rows for the Message DataFrame is',nrow(message_df),'.\n',
+    'The number of MID unique value for the Recipient Info DataFrame is',n_distinct(recipient_df$mid),'.\n',
+    'The number of RID unique value for the Recipient Info DataFrame is',n_distinct(recipient_df$rid),'.\n',
+    'The number of rows for the Recipient Info DataFrame is',nrow(message_df),'.\n')
+
+```
+  
+With this initial information, we can see that:  
+  - The data set is built around a "message".  
+  - The message is recorded in the Message DataFrame  
+  - A message has a MID, a sender, a recipient, a subject. 
+  - We can find this information in our 2 main DataFrames: Message and Recipient Info.These two tables are linked by the MID of the message.  
+  - The Employee List DataFrame can be used to link the identity of an employee with an e-mail.  
+  - When we compare the number of rows per DataFrame and the number of unique values of the Ids, we can see that they are identical for the Employee List and Message DataFrames. We can therefore conclude that: in the Message DataFrame, a row equals a distinct message and in the Employee DataFrame, a row is equal to an employee.  
+  - For the Recipient Info DataFrame, we have 2064442 rows and 252759 unique MID values. The difference is 1811683. This means that for a message, we can have several recipients. On the other hand, we have the same number of lines as the number of RID values, because one RID represents a single sender, so we can have several RIDs for one MID.
+  
+We now have a better understanding of how our dataset works, so we can explore it further.  
+  
+  
+---
+  
+  
+# 3 - Data Exploration and Cleaning
+  
+First of all, using the results obtained in the previous step, we can conclude that we have no duplicate values because:  
+- For the Message table, the number of row is equals to the number of unique MID.  
+- For the Employee List table, the number of row is equals to the number of unique E-mail ID.  
+- For the Recipient Info table, the number of row is equals to the number of unique RID.  
+  
+## 3.1 - Missing Values
+  
+We can now check if we have missing values in our 3 DataFrames: 
+   
+```{r}
+
+cat('The number of missing values for the Employee List DataFrame is',sum(is.na(employee_df)),'.\n',
+    'The number of missing values for the Message DataFrame is',sum(is.na(message_df)),'.\n',
+    'The number of missing values for the Recipient Info DataFrame is',sum(is.na(recipient_df)),'.\n')
+
+```
+  
+We have just one missing value in our Employee List DataFrame, so we can locate it:
+   
+```{r}
+
+sapply(employee_df, function(x) sum(is.na(x)))
+
+```
+   
+The missing value is in the status column, so we can replace it by the default value "N/A" and check if the missing value is always present: 
+   
+```{r}
+
+employee_df$status[is.na(employee_df$status)] <- 'N/A'
+cat("The number of missing values for the Employee List DataFrame is",sum(is.na(employee_df)))
+
+```
+   
+  
+## 3.2 - Data type, outliers, data typos/misspelling
+  
+Now we can check whether each column contains the correct data, with the right type/format, and contain no outliers:  
+  
+1- Employee List DataFrame: 
+  - Check that the columns of our 4 "e-mails" are composed of an e-mail in the right format.  
+  We can check if all the values respect an e-mail pattern.  
+  - Look the data in the "status" column to identify the different status of employees.   
+2- Message DataFrame:  
+  - Check the “date” column for format and date range.  
+3- Recipient Info DataFrame:  
+  - For the column "rvalues", we can check if all the values respect an e-mail pattern.  
+  - Look the data in the "rtype" column to identify the different e-mail etiquettes.  
+  
+    
+### 3.2.1 - Employeelist DataFrame - E-mail Columns
+  
+We can start with the Employee List DataFrame.
+  
+**a - Email_id**
+  
+First, we can call the function email_check to check the Email_ID column.
+   
+```{r}
+
+email_check(employee_df, 'Email_id')
+
+```
+   
+We can see that we have a repeating pattern with 2 dots, and for a line we have a space.
+   
+```{r}
+
+# We remove all spaces inside words
+gsub(" ", "", employee_df$Email_id, , fixed=TRUE)
+
+# We can replace all the double dots by a dot
+employee_df$Email_id <- gsub('..', '.', employee_df$Email_id, fixed=TRUE)
+
+head(employee_df, 5)
+
+```
+   
+  
+**b - Email2**
+  
+Now we can call our "email_check" function for the Email2:
+   
+```{r}
+
+email_check(employee_df, 'Email2')
+
+```
+   
+We have:  
+  1- For the majority of the e-mails, we have the same pattern with a double dots.  
+  2- Specific errors:   
+    - Space problem: scott . hendrikcson@enron.com  
+    - Double points and an @ are missing: d..baughman.com  
+    - Using of "?": matthew.smith?@enron.com  
+   
+```{r}
+
+# We can specically replace our 3 e-mails with a specific pattern
+conditions <- c('d..baughman.com', 'matthew.smith?@enron.com', 'scott . hendrikcson@enron.com')
+replace_values <- c('d.baughman@enron.com', 'matthew.smith@enron.com', 'scott.hendrikcson@enron.com')
+
+employee_df$Email2 <- replace(employee_df$Email2, employee_df$Email2 %in% conditions, replace_values)
+
+# We can replace the double dots with a dot
+employee_df$Email2 <- gsub('..', '.', employee_df$Email2, fixed=TRUE)
+
+
+```
+   
+  
+**c - Email3**
+  
+For the Email3 column: 
+   
+```{r}
+
+email_check(employee_df, 'Email3')
+
+```
+  
+We have the same pattern with a double dots:
+  
+```{r}
+
+# We can replace the double dots with a dot
+employee_df$Email3 <- gsub('..', '.', employee_df$Email3, fixed=TRUE)
+
+
+```
+   
+  
+**d - Email4**
+  
+For the Email4 column: 
+   
+```{r}
+
+email_check(employee_df, 'EMail4')
+
+```
+   
+We have the same pattern with a double dots:
+  
+```{r}
+
+# Replace the double dots with a dot
+employee_df$EMail4 <- gsub('..', '.', employee_df$EMail4, fixed=TRUE)
+
+```
+   
+  
+### 3.2.2 - Employeelist DataFrame - Status Column
+  
+We can now check the "status" column using our frequency table function: 
+  
+```{r}
+
+frequency_table_status <- frequency_table(employee_df$status, 'TRUE')
+frequency_table_status
+
+```
+   
+We can see that there are no errors in the various statuses, but we can quickly visualize the data: 
+   
+```{r}
+
+ggplot(frequency_table_status, aes(x=reorder(column, -Freq), Freq)) +     
+  geom_bar(stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 90, size = 10)) +
+  labs(x = 'Status', y = 'Frequencies') + 
+  geom_text(
+    aes(label = Freq), 
+    vjust = 1.2,
+    hjust = 0.5, 
+    color = 'white')
+
+```
+   
+We can see that the most represented status is that of Employee, but we also have a significant number of people with no status mentioned. 
+  
+  
+### 3.2.3 - Message DataFrame - Date
+  
+We start by checking whether the column is in Date format:
+   
+```{r}
+
+is_date <- is.Date(message_df$date)
+is_date
+
+```
+   
+We can now check the date range in our DataFrame to identify any outliers or misspellings. To do so, we can use our frequency table function: 
+   
+```{r}
+
+# Extract the year of the date
+year <- format(message_df$date, "%Y")
+
+# Call the Frequency Table function 
+frequency_table(year, 'TRUE')
+
+```
+  
+It seems interesting because we have:   
+  - Outliers: 2044 and 2043. It's just not possible. Perhaps 1979 is also out of our scope.    
+  - Spelling/typographical errors: we have 0001 and 0002. They often represent 2001 and 2002.  
+  
+So, we can now:  
+ - We can transform 0001 into 2021 and 0002 into 2002.  
+ - Remove the date with the date: 2044, 2043 and 1979.  
+    
+```{r}
+
+# Create 3 columns for the year, the month and the day
+message_df <- message_df %>% 
+                mutate(Year = year(message_df$date)) %>% 
+                mutate(Month = month(message_df$date)) %>%
+                mutate(Day = day(message_df$date))
+
+# Transform 1 into 2021 and 2 into 2002
+message_df$Year[message_df$Year == 1] <- 2001
+message_df$Year[message_df$Year == 2] <- 2002
+  
+# Remove the first date column
+message_df$date <- NULL
+  
+# Create a new date column and convert it in a date format
+message_df$date <- paste(message_df$Year, message_df$Month, message_df$Day, sep = "-")
+message_df$date <- as.Date(message_df$date , format = "%Y-%m-%d")
+
+#Remove the row where the date is 1979, 2043 and 2044
+message_df <- message_df[!(message_df$date > "2021-01-01" | message_df$date < "1980-01-01"), ]
+
+```
+   
+  
+### 3.2.4 - Recipient Info DataFrame - rvalue
+  
+Rvalue is a column composed of e-mails. We can use the email_check function to check the spelling of e-mails: 
+   
+```{r}
+
+email_check(recipient_df, 'rvalue')
+
+```
+   
+It's interesting because we find the same than the precedent tables:   
+  - Double dots.  
+  - Space in middle of e-mail.  
+
+But we have also:   
+  - "Undisclosed-Recipient" which represent a hidden e-mail recipient.  
+  - New patterns: e.g.mark_a._hoppe@calpx.com.  
+  - Name of maybe a mailing list: e.g. Enron Transportation Services Everyone - All@ENRON  
+  
+First, we will remove the double dots and the spaces:  
+   
+```{r}
+
+# Remove all spaces inside words
+recipient_df$rvalue <- gsub(" ", "", recipient_df$rvalue, , fixed=TRUE)
+
+# Replace all the double dots by a dot
+recipient_df$rvalue <- gsub('..', '.', recipient_df$rvalue, fixed=TRUE)
+
+```
+   
+We can now take a closer look at the remaining data using our frequency table function:
+   
+```{r}
+
+rvalue_false <- email_check(recipient_df, 'rvalue')
+frequency_table(rvalue_false$rvalue, 'TRUE')
+
+```
+   
+We can see that:  
+  - We have different Mailing Lists that represent a group of people. For example, mailing lists that classify employees by region. We'll don't touch these values.  
+  - E-mail that we have to modify: michael_r._soland@oxy.com ; mark_a._hoppe@calpx.com ; phillip.-sydney-.taylor@enron.com - we have a dot and an underscore or dash.  
+  
+Just to uniform the spelling of theses e-mails we will replace all "_." and "-." by "_" or "-".  
+   
+```{r}
+
+recipient_df$rvalue <- mgsub(recipient_df$rvalue, c('_.', '._', '-.', '.-'), c('_', '_', '.', '-'),
+                                fixed=TRUE)
+
+```
+   
+To finish, we can just take a look on our frequencie table for our rvalue column:  
+   
+```{r}
+
+frequency_table(recipient_df$rvalue, 'TRUE')
+
+```
+   
+When we take a look at our frequency table, we can se that:  
+- The most frequent address is unkwown: "no.address@enron.com"  
+- We have different type of recipients:  
+  - Enron employees: @enron.com.  
+  - Mailing List: AllEnronWorldwide@ENRON.  
+  - External contacts: gfergus@brobeck.com.  
+- The majority of e-mail recipients are Enron employees.  
+  
+  
+### 3.2.5 - Recipient Info DataFrame - rtype
+  
+To finish the Exploration and Cleaning part, we can take a look at our rtype variable that represent the different e-mail etiquette.We'll call the frequency table function: 
+   
+```{r}
+
+frequency_table_rtype <- frequency_table(recipient_df$rtype, 'TRUE')
+frequency_table_rtype
+
+```
+   
+We can validate this column because we have 3 right values:  
+  - TO: the main recipient(s) of the e-mail.  
+  - CC: Carbon Copy.Send additional copies of a single e-mail to one or more recipients.  
+  - BCC: Blind Carbon Copy. Sends copies of the e-mail to multiple recipients but none of the recipients are made aware of who else has received the e-mail.  
+   
+```{r}
+
+ggplot(frequency_table_rtype, aes(x=reorder(column, -Freq), Freq)) +     
+  geom_bar(stat = "identity") + 
+  theme(axis.text.x = element_text(angle = 0, size = 10)) +
+  labs(x = 'E-mail Etiquettes', y = 'Frequencies') + 
+  geom_text(
+    aes(label = Freq), 
+    vjust = 2,
+    hjust = 0.5, 
+    color = 'white')
+
+```
+   
+We can see that the TO label is used more often, but this seems normal as it's the main label used when sending e-mail. 
+  
+  
+---
+  
+  
+  
+# 4 - Transformation 
+  
+Related to our analysis goals, we will transform our DataFrames to create one table and facilitate the analysis process. 
+  
+## 4.1 - Variable selection 
+  
+We don't need to keep all the variables.  
+So, for our new DataFrame we can:  
+  - Use the Message DataFrame as a "main" DataFrame  
+  - For every message (unique MID), we can join:  
+    - Name, Last Name, status and EID of the sender.   
+    - rvalue, rtype and rid of the recipient.  
+  
+The goal is to have one row for one message (unique MID) that contains all the information needed.
+  
+  
+## 4.2 - Eron DataFrame creation 
+  
+### 4.2.1 - Transform the 3 DataFrames 
+  
+We will create 3 new DataFrames selecting our main variables. 
+  
+```{r}
+
+list_variable_message <- c('mid', 'sender', 'subject', 'Year', 'Month', 'Day', 'date')
+list_variable_employee <- c('eid', 'firstName', 'lastName', 'Email_id', 'Email2', 'Email3', 'EMail4', 'status')
+
+message_df_2 <- message_df[ , list_variable_message]
+employee_df_2 <- employee_df[ , list_variable_employee]
+recipient_df_2 <- recipient_df
+
+
+```
+  
+Now, we'll modify the name of the different columns. 
+  
+```{r}
+
+# Message DataFrame
+message_df_2 <- message_df_2 %>% 
+  dplyr::rename('MessageID' = 'mid',
+         'SenderEmail' = 'sender',
+         'Subject' = 'subject', 
+         'DateYear' = 'Year', 
+         'DateMonth'= 'Month', 
+         'DateDay'= 'Day', 
+         'Date' = 'date')
+
+# Recipient DataFrame
+recipient_df_2 <- recipient_df_2 %>% 
+  dplyr::rename('MessageID' = 'mid',
+               'RecipientID' = 'rid', 
+               'RecipientType' = 'rtype', 
+               'RecipientEmail' = 'rvalue')
+
+
+# Employee DataFrame
+# We'll create a column EmployeeName
+employee_df_2$EmployeeName <- paste(employee_df_2$firstName, employee_df_2$lastName, sep = " ")
+
+# Rename the columns and remove the first, last name and folder columns 
+employee_df_2 <- employee_df_2[,!names(employee_df_2) %in% c('firstName', 'lastName', 'folder')]
+
+employee_df_2 <- employee_df_2 %>% 
+  dplyr::rename('EmployeeID' = 'eid',
+               'Email1' = 'Email_id', 
+               'Email4' = 'EMail4', 
+               'Status' = 'status')
+
+```
+   
+  
+### 4.2.2 - Create the Enron DataFrame
+  
+The Enron DataFrame will contain:  
+  - MessageID  
+  - Date  
+  - DateYear  
+  - DateMonth  
+  - DateDay  
+  - Subject  
+  - RecipientType  
+  - RecipientID  
+  
+  - SenderEmail  
+  - SenderName  
+  - SenderStatus  
+  - SenderEmployeeID  
+  
+  - RecipientEmail  
+  - RecipientName  
+  - RecipientStatus  
+  - RecipientEmployeeID  
+  
+To do that, we will need to join:   
+  - Message Table with Employee DataFrame  
+  - The result of the join with Recipient DataFrame  
+  - The result of the join with Employee DataFrame  
+  
+**a - Join the Message DataFrame and the Employee DataFrame**
+   
+```{r}
+# Join for the Email1
+df_join_1 <- inner_join(message_df_2, employee_df_2, by = c('SenderEmail' = 'Email1'))
+
+# Retrieve all message ID that correspond to an employee's e-mail address
+list_message_id_1 <- df_join_1[, 'MessageID']
+
+# Create a new DataFrame with the remaining rows
+remaining_rows <- message_df_2[!message_df_2$MessageID %in% list_message_id_1, ]
+
+# Join a new times the new DataFrame with the Email2 of the Employee DataFrame
+df_join_2 <- inner_join(remaining_rows, employee_df_2, by = c('SenderEmail' = 'Email2'))
+
+
+# Repeat the process for the Email3 of the Employee DataFrame
+list_recipient_id <- df_join_2[, 'MessageID']
+list_message_id_2 <- c(list_message_id_1, list_recipient_id)
+remaining_rows <- message_df_2[!message_df_2$MessageID %in% list_message_id_2, ]
+df_join_3 <- inner_join(remaining_rows, employee_df_2, by = c('SenderEmail' = 'Email3'))
+
+# Repeat the process for the Email4 of the Employee DataFrame
+list_recipient_id <- df_join_3[, 'MessageID']
+list_message_id_3 <- c(list_message_id_2, list_recipient_id)
+remaining_rows <- message_df_2[!message_df_2$MessageID %in% list_message_id_3, ]
+df_join_4 <- inner_join(remaining_rows, employee_df_2, by = c('SenderEmail' = 'Email4'))
+
+# Repeat the same process to retrieve the remaining rows that are not joined during the process 
+list_recipient_id <- df_join_4[, 'MessageID']
+list_message_id_4 <- c(list_message_id_3, list_recipient_id)
+remaining_df <- message_df_2[!message_df_2$MessageID %in% list_message_id_4, ]
+
+```
+   
+We now have 5 DataFrames with different rows. We can group them together and check whether we have the same number of rows, and therefore message IDs as at the start.
+   
+```{r}
+
+enron_df <- df_join_1 %>%
+  bind_rows(df_join_2) %>%
+  bind_rows(df_join_3) %>%
+  bind_rows(df_join_4) %>%
+  bind_rows(remaining_df)
+
+rows_id_start = n_distinct(message_df$mid)
+rows_id_end = n_distinct(enron_df$MessageID)
+result_row_number = rows_id_start == rows_id_end
+
+cat('At the beginning, we had', rows_id_start, 'message ID (unique row)', '.\n',
+      'Now, we have,', rows_id_end,'message ID (unique row)', '.\n',
+      'Is the number of message ID (unique row) the same ? ->', result_row_number, '.')
+
+```
+  
+Now, we can remove the columns : Email1, Email2, Email3 and Email4:
+   
+```{r}
+
+enron_df <- enron_df[,!names(enron_df) %in% c('Email1', 'Email2', 'Email3', 'Email4')]
+
+```
+   
+Before to continue, we can check the number of missing values in the DataFrame. It corresponds to senders who do not appear in the employee table. 
+   
+```{r}
+
+colSums(is.na(enron_df))
+
+```
+   
+We can replace all of these values by "N/A".
+  
+```{r}
+
+enron_df <- enron_df %>% replace(is.na(.), 'N/A')
+
+```
+   
+We now have a DataFrame containing information about the message and the associated sender, in the case of an employee. 
+  
+Before continuing, we will rename the column for greater clarity in our DataFrame : 
+   
+```{r}
+
+enron_df <- enron_df %>% 
+  dplyr::rename('SenderEmployeeID' = 'EmployeeID',
+               'SenderStatus' = 'Status', 
+               'SenderName' = 'EmployeeName')
+
+```
+   
+  
+**b - Join the Eron DataFrame and the Recipient Table**
+  
+Now, we want to join the information of the recipient with the appropriate e-mail. To do that, we will use a left join on the "MessageID". 
+   
+```{r}
+
+enron_df <- enron_df %>% left_join(recipient_df_2, 
+            by='MessageID')
+
+```
+   
+We now have a DataFrame with 2,064,418 lines. This is normal, because for the same message ID, there can be several recipients. But we can see that our Recipient DataFrame contains 2,064,442. So we've lost 24 lines. This is because the Recipient DataFrame contains messages (IDs) that don't appear in our Message DataFrame. 
+  
+We're not going to recover these lines because we don't have any information on the sender. 
+  
+  
+**c - Join the Eron DataFrame and the Employee DataFrame**
+  
+Finally, we need to join the Enron DataFrame to the Employee DataFrame again, in order to retrieve the employee information linked to the recipient, if we have it.
+  
+We'll use the same code as for the previous join.
+   
+```{r}
+
+number_recipientid_start = n_distinct(enron_df$RecipientID)
+number_rows_start = nrow(enron_df)
+
+# Join for the Email1
+df_join_1 <- inner_join(enron_df, employee_df_2, by = c('RecipientEmail' = 'Email1'))
+
+# Retrieve all recipient ID that are joined
+list_recipient_id_1 <- df_join_1[, 'RecipientID']
+
+# Create a new DataFrame with the remaining rows (not joined)
+remaining_rows <- enron_df[!enron_df$RecipientID %in% list_recipient_id_1, ]
+
+# Join a new times the remaining DataFrame with the Email2 of the Employee DataFrame
+df_join_2 <- inner_join(remaining_rows, employee_df_2, by = c('RecipientEmail' = 'Email2'))
+
+# Repeat the process for the Email3 of the Employee DataFrame
+list_recipient_id <- df_join_2[, 'RecipientID']
+list_recipient_id_2 <- c(list_recipient_id_1, list_recipient_id)
+remaining_rows <- enron_df[!enron_df$RecipientID %in% list_recipient_id_2, ]
+df_join_3 <- inner_join(remaining_rows, employee_df_2, by = c('RecipientEmail' = 'Email3'))
+
+# Repeat the process for the Email4 of the Employee DataFrame
+list_recipient_id <- df_join_3[, 'RecipientID']
+list_recipient_id_3 <- c(list_recipient_id_2, list_recipient_id)
+remaining_rows <- enron_df[!enron_df$RecipientID %in% list_recipient_id_3, ]
+df_join_4 <- inner_join(remaining_rows, employee_df_2, by = c('RecipientEmail' = 'Email4'))
+
+# Repeat the same process to retrieve the remaining rows that are not joined during the process
+list_recipient_id <- df_join_4[, 'RecipientID']
+list_message_id_4 <- c(list_recipient_id_3, list_recipient_id)
+remaining_df <- enron_df[!enron_df$RecipientID %in% list_message_id_4, ]
+
+# We now have 5 DataFrames with different rows
+# Group them together
+enron_df <- bind_rows(df_join_1, df_join_2, df_join_3, df_join_4, remaining_df)
+
+# Count the number of Rows and RecipientID distinct value and compare it with the old number
+number_recipientid_end = n_distinct(enron_df$RecipientID)
+number_rows_end = nrow(enron_df)
+result_recipientid_number = number_recipientid_start == number_recipientid_end
+result_rows_number = number_rows_start == number_rows_end
+
+cat('Before making the junction, we had', number_recipientid_start,'recipient ID and,', number_rows_start,'rows', '.\n',
+      'After the join, we have,', number_recipientid_end,'recipient ID and,', number_rows_end,'rows', '.\n',
+      'Is the number of Recipient ID the same before and after? ->', result_recipientid_number, '.\n',
+      'Is the number of Rows the same before and after? ->', result_recipientid_number, '.')
+
+```
+   
+We have the same unique recipient ID number after and before, and we have the same number of rows and Recipient ID, so we haven't lost any lines and we don't have any duplicates. 
+  
+Now, we can clean our Enron DataFrame. 
+   
+```{r}
+
+# Remove the e-mails columns
+enron_df <- enron_df[,!names(enron_df) %in% c('Email1', 'Email2', 'Email3', 'Email4')]
+
+# Rename some specific columns for recipient employee information
+enron_df <- enron_df %>% 
+  dplyr::rename('RecipientName' = 'EmployeeName',
+               'RecipientStatus' = 'Status', 
+               'RecipientEmployeeID' = 'EmployeeID')
+
+# We have missing values in the columns Employee ID, Status and EmployeeName
+# It corresponds to recipient who do not appear in the eEame We can replace all of these values by "N/A"
+
+enron_df <- enron_df %>% replace(is.na(.), 'N/A')
+
+```
+   
+```{r}
+
+# Check if we have missing values
+sapply(enron_df, function(x) sum(is.na(x)))
+
+```
+   
+To finish we can reorder the columns.
+  
+```{r}
+
+col_order <- c('MessageID', 'Date', 'DateYear', 'DateMonth', 'DateDay', 'Subject',
+               'SenderEmail', 'SenderName', 'SenderStatus', 'SenderEmployeeID',
+               'RecipientID', 'RecipientType', 'RecipientEmail', 'RecipientName',
+               'RecipientStatus', 'RecipientEmployeeID')
+
+enron_df <- enron_df[, col_order]
+
+```
+   
+Now we have a clean DataFrame that groups our 3 tables:  
+  - Message information.  
+  - Sender information and if it's an employee, we have this personal information.  
+  - Recipient information and if it's an employee, we have this personal information.  
+  
+We can now go to the analysis step with a unique Dataframe.  
+  
+  
+---
+  
+  
+
+# 5 - Analysis 
+  
+As a reminder here is our analysis goals:  
+    1. Analysis of employee e-mail activity: Who is Enron's most active employee?  
+    2. Analysis of the relationship between status and e-mail activity: In which status are we most likely to be active, in terms of sending and receiving e-mail?  
+    3. Analysis of e-mail activity over time: When was e-mail activity highest? And why?  
+    4. Analysis of the content of the messages: What were the Enron employees talking about?  
+  
+## 5.1 - Who is Enron's most active employee?
+  
+We can divide this part in 3 steps:   
+  - Sender Enron's Most Active Employees.  
+  - Recipient Enron's Most Active Employees.  
+  - Enron's most active employees overall.  
+  
+For every step we can:   
+  1- Create a specific DataFrame.  
+  2- Analyze the distribution.  
+  3- Display the most active Enron employees.  
+  
+Before we begin, it is important to define who an Enron employee is.  
+According to our DataFrames, an Enron employee is a person who is listed in our Employee DataFrame. So, in our main DataFrame, they are identified because they have an EmployeeID.  
+  
+  
+### 5.1.1 - Sender Enron's Most Active Employees
+  
+**a - Create a DataFrame**
+  
+In this section, we focus on Enron employees who are the "sender".   
+So we can create a specific DataFrame in which we can remove all messages in which we have no Employee ID about the sender. This means that the sender was not in our Employee DataFrame.  
+   
+```{r}
+
+enron_df_sender <- enron_df[enron_df$SenderEmployeeID != 'N/A', ]
+
+```
+   
+In fact, we have several lines for a single message ID because we have one message ID for several recipient IDs. A message ID refers to several recipients, but it refers to a single sender. So we'll keep one line for one message ID.
+   
+```{r}
+
+enron_df_sender <- enron_df_sender %>% distinct(MessageID, .keep_all = TRUE)
+
+```
+  
+Finally, we can create a frequency table to know the number of e-mails sent by employees.
+   
+```{r}
+
+frequency_table_sender = frequency_table(enron_df_sender$SenderName, 'TRUE')
+frequency_table_sender <- frequency_table_sender %>%
+  dplyr::rename('EmployeeName' = 'column',
+                'EmailSent' = 'Freq')
+frequency_table_sender
+
+```
+   
+We can see that we have 146 employees represented: 
+   
+```{r}
+
+nrow(frequency_table_sender)
+
+```
+   
+  
+**b - Analyze the Distribution**
+   
+```{r}
+# Use a simple function to get an overview of our Frequency variable
+
+summary <- summary(frequency_table_sender$EmailSent)
+summary
+
+```
+  
+```{r}
+
+# Create a Boxplot
+breaks <- seq(0, 6500, by = 500)
+
+ggplot(frequency_table_sender, aes(x = EmailSent)) + 
+  geom_boxplot() +
+  scale_x_continuous(breaks = breaks) + 
+  xlab('Number of E-mail Sent')
+
+```
+   
+```{r}
+
+# Visualize the data using an histogram
+h <- hist(frequency_table_sender$EmailSent,
+          breaks = 6,
+          ylim = c(0, 130),
+          col = '#054C70',
+          border= 'black',
+          main = 'E-mail sent by the employees',
+          xlab='Number of E-mail Sent', 
+          ylab = 'Number of Employees')
+text(h$mids,h$counts,labels=h$counts, adj=c(0.5, -0.5))
+
+
+```
+   
+Concerning the distribution, we can see that:   
+  - We have an important range of values: 1 to 6273. This means that we have one employee who has sent 1 e-mail and another who has sent over 6,000 e-mails.   
+  - The majority of the employees send between 101 and 840 e-mails.With a median of 301 e-mails.  
+  - We have around 12 employees who are not part of this majority because they sent a signficant number of e-mails: more than 2,000.  
+  - We have a Right Skewed distribution. It's logical because the majority of the employees sent between 100 and 840 e-mails.  
+  
+  
+**c - Sender Enron's Most Active Employees**
+   
+```{r}
+
+top_variable <- 10
+rest <- top_variable - 3
+
+top_employees_sender <- frequency_table_sender %>% top_n(top_variable)
+
+ggplot(top_employees_sender, aes(x=reorder(EmployeeName, EmailSent), EmailSent)) + 
+  geom_bar(stat = 'identity', fill = '#054C70') +
+  coord_flip() + 
+  labs(x = 'Employee names', y = 'Number of E-mail Sent') +
+  geom_text(
+  aes(label = EmailSent), 
+  size = 2.5,
+  vjust = 0.5,
+  hjust = 1.5, 
+  color = 'white') +
+  theme(axis.text = element_text(face="bold"))
+
+```
+   
+We now have an overview of the 10 employees who send the most e-mails and we can see that between the first and the tenth employee we have a difference of 4,000 e-mails. 
+  
+  
+### 5.1.2 - Recipient Enron's Most Active Employees
+  
+We can apply the same process to the recipient: Which employee receives the most e-mails?
+  
+**a - Create a DataFrame**
+  
+In this section, we focus on Enron employees who are the "recipient". 
+So we can create a specific DataFrame in which we can remove all messages in which we have no Employee ID about the recipient. This means that the recipient was not in our Employee DataFrame.
+And in this case, we keep all rows because we want to have unique Recipient ID. 
+   
+```{r}
+
+enron_df_recipient <- enron_df[enron_df$RecipientEmployeeID != 'N/A', ]
+
+```
+   
+Finally, we can create a frequency table to know the number of e-mails receive by employees.
+   
+```{r}
+
+frequency_table_recipient = frequency_table(enron_df_recipient$RecipientName, 'TRUE')
+frequency_table_recipient <- frequency_table_recipient %>%
+  dplyr::rename('EmployeeName' = 'column',
+                'EmailReceive' = 'Freq')
+frequency_table_recipient
+
+```
+   
+We can see that we have 148 employees represented: 
+   
+```{r}
+
+nrow(frequency_table_recipient)
+
+```
+   
+  
+**b - Analyze the Distribution**
+   
+```{r}
+# Use a simple function to get an overview of our Frequency variable
+summary <- summary(frequency_table_recipient$EmailReceive)
+summary
+
+```
+   
+```{r}
+
+# Create a Boxplot
+
+breaks <- seq(0, 11500, by = 500)
+
+ggplot(frequency_table_recipient, aes(x = EmailReceive)) + 
+  geom_boxplot() +
+  scale_x_continuous(breaks = breaks) + 
+  xlab('Number of e-mails received')
+
+```
+   
+```{r}
+
+# Visualize the data using an histogram
+
+h <- hist(frequency_table_recipient$EmailReceive,
+          breaks = 6,
+          ylim = c(0, 130),
+          col = '#054C70',
+          border= 'black',
+          main = 'E-mails received by the employees',
+          xlab='Number of E-mails received', 
+          ylab = 'Number of Employees')
+text(h$mids,h$counts,labels=h$counts, adj=c(0.5, -0.5))
+
+
+```
+   
+Concerning the distribution, we can see that:   
+  - We have an important range of values: 140 to 11,137. This means that we have one employee who has received 140 e-mail and another who has received over 11,137 e-mails.  
+  - The majority of the employees received between 1,202 and 2,848 e-mails.With a median of 1,758 e-mails.  
+  - We have around 13 employees who are not part of this majority because they sent an important number of e-mails: more than 5,000.  
+  - We have a Right Skewed distribution. This makes sens, because we don't receive the same number of e-mails depending on your status.  
+  
+  
+**c - Recipient Enron's Most Active Employees**
+   
+```{r}
+
+top_variable = 10
+rest = top_variable - 3
+
+top_employees_recipient = frequency_table_recipient %>% top_n(top_variable)
+
+ggplot(top_employees_recipient, aes(x=reorder(EmployeeName, EmailReceive), EmailReceive)) + 
+  geom_bar(stat = 'identity', fill = '#054C70') +
+  coord_flip() + 
+  labs(x = 'Employee Names', y = 'Number of E-mails Received') +
+  geom_text(
+  aes(label = EmailReceive), 
+  size = 2.5,
+  vjust = 0.5,
+  hjust = 1.5, 
+  color = 'white') +
+  theme(axis.text = element_text(face='bold'))
+
+```
+   
+We now have an overview of the 10 employees who received the most e-mails and we can see that the top 4 are very close.
+  
+  
+### 5.1.3 - Enron's most active employees overall
+  
+**a - Comparison between sender and recipient**
+  
+Before we find out who is Enron's most active employee overall, we can compare our 2 precedent DataFrame: Sender and Recipient. 
+   
+```{r}
+
+# Create two data frames: one for senders and one for recipients
+frequency_table_sender_2 <- frequency_table_sender
+frequency_table_recipient_2 <- frequency_table_recipient
+frequency_table_sender_2$EmployeeName <- 'Employees Sender'
+frequency_table_recipient_2$EmployeeName <- 'Employees Recipient'
+
+frequency_table_sender_2 <- frequency_table_sender_2 %>%
+  dplyr::rename('Emails' = 'EmailSent')
+frequency_table_recipient_2 <- frequency_table_recipient_2 %>%
+  dplyr::rename('Emails' = 'EmailReceive')
+
+# Concatenate this 2 DataFrame
+comparison_df <- bind_rows(frequency_table_sender_2, frequency_table_recipient_2)
+
+head(comparison_df, 10)
+
+```
+  
+```{r}
+
+# Create a Boxplot
+
+ggplot(comparison_df, aes(x = EmployeeName, y = Emails)) + 
+  geom_boxplot() +
+  ylab('Number of E-mails') + 
+  xlab('') +
+  theme(axis.text = element_text(face='bold'))
+
+```
+   
+It's very interesting because we can see that it represents the way a company works: in general, we receive more e-mails than we send. In fact, the box diagram of the receiving employee is higher than that of the sending employee. This means we're sending more e-mails.This difference is also represented by the difference of the 2 medians.  
+We can also see that there are more differences between employees, because for the Employees Recipient, the box diagram is larger. For the Employees Sender, it's more compact.
+  
+```{r}
+
+hist(frequency_table_recipient_2$Emails,
+          breaks = 8,
+          ylim = c(0, 150),
+          col = rgb(1,0,0,0.5),
+          border= 'black',
+          main = 'Comparison between Senders and Recipients',
+          xlab='Number of E-mails', 
+          ylab = 'Number of Employees')
+
+hist(frequency_table_sender_2$Emails,
+     breaks = 6, 
+     ylim = c(0, 150),
+     col=rgb(0,0,1,0.5),
+     border= 'black',
+     add=T)
+
+legend("topright", legend=c('Recipient','Sender'), col=c(rgb(1,0,0,0.5), 
+     rgb(0,0,1,0.5)), pt.cex=2, pch=15 )
+
+```
+   
+These two histograms show the same conclusion as the previous box plot. More precisely, we can see that for the sending employees, the Right Skewed distribution is more important than for the receiving employees.
+  
+  
+**b - Enron's most active employees overall**
+  
+To identify the most Enron Employee, we can concatenate our 2 precedent frequency_table:  
+  - frequency_table_sender  
+  - frequency_table_recipient  
+   
+```{r}
+
+frequency_table_sender <- frequency_table_sender %>%
+                            dplyr::rename('Emails' = 'EmailSent')
+frequency_table_recipient <- frequency_table_recipient %>%
+                            dplyr::rename('Emails' = 'EmailReceive')
+
+# Concatenate this 2 DataFrame
+most_active_employee_df <- bind_rows(frequency_table_sender, frequency_table_recipient)
+
+# Merge every row with the same employee to have a total
+most_active_employee_df <- most_active_employee_df %>%
+  group_by(EmployeeName) %>%
+  dplyr::summarise(Emails=sum(Emails))
+
+most_active_employee_df <- most_active_employee_df %>% as.data.frame()
+most_active_employee_df <- most_active_employee_df[order(most_active_employee_df$Emails, decreasing = TRUE),]
+
+paste('We have', nrow(most_active_employee_df), 'rows, corresponding to the number of unique employees')
+
+```
+   
+We now have a DataFrame containing all employees and the sum of e-mails sent and received.
+It would be interesting to look at a boxplot and histogram to analyze the distribution.
+   
+```{r}
+
+summary <- summary(most_active_employee_df$Emails)
+summary
+
+```
+   
+```{r}
+# Plot the result
+breaks <- seq(0, 18000, by = 2000)
+
+ggplot(most_active_employee_df, aes(x = Emails)) + 
+  geom_boxplot() +
+  scale_x_continuous(breaks = breaks) + 
+  xlab('Number of E-mails')
+
+```
+  
+```{r}
+
+# Create a histogram
+breaks <- seq(0, 18000, by = 2000)
+  
+h <- hist(most_active_employee_df$Emails,
+          breaks = 7,
+          xlim = c(0, 20000),
+          ylim = c(0, 80),
+          col = '#054C70',
+          border= 'black',
+          main = 'E-mail send and received by the employees',
+          xlab='Number of E-mails', 
+          ylab = 'Number of Employees')
+text(h$mids,h$counts,labels=h$counts, adj=c(0.5, -0.5))
+
+
+```
+  
+We can see that:  
+  - We have a Right Skewed distribution again, but it's less important.  
+  - In contrary the range of values is more important: 196 to 17410. This shows us that, depending on the employee, the difference in terms of activity can be very significant.  
+  - We have 15 employees who are really outside the group and more active.  
+  
+To finish we can now identify the most active employees:  
+  
+```{r}
+
+top_variable_2 = 10
+rest_2 = top_variable - 3
+
+top_employees_overall = most_active_employee_df %>% top_n(top_variable_2)
+
+ggplot(top_employees_overall, aes(x=reorder(EmployeeName, Emails), Emails)) + 
+  geom_bar(stat = 'identity', fill = '#054C70') +
+  coord_flip() + 
+  labs(x = 'Employee Names', y = 'Number of E-mails') +
+  geom_text(
+  aes(label = Emails), 
+  size = 2.5,
+  vjust = 0.5,
+  hjust = 1.5, 
+  color = 'white') +
+  theme(axis.text = element_text(face='bold'))
+
+```
+   
+We can see a tendency. In this top 10 we have 3 groups:   
+  1.  1. The most active employee, Jeff Dasovich, who has a significant difference with the second employee.  
+  2. From the second to the eighth employee.  
+  3. After the 9th employee.   
+  
+  
+## 5.2 - In which status are we most likely to be active, in terms of sending and receiving e-mail?
+  
+Now that we have Enron's most active employees, it will be interesting to analyze the relationship between status and e-mail activity. More precisely, we try to answer the question: In which status are we most likely to be active, in terms of sending and receiving e-mail?  
+  
+First of all, we define activity as:   
+  - Sender - E-mails Sent  
+  - Recipient - E-mails Received  
+  - Overall - E-mails sent + E-mails received  
+  
+As far as the analysis plan is concerned, we can begin by visualizing overall activity by status.
+  
+  
+### 5.2.1 - Visualize the activity for each status
+  
+To start, we can display a bar plot to show the e-mail activity (e-mail sent and received) for each status.
+  
+We can use our “Most active employees” DataFrame, which groups all employees according to the number of e-mails sent and received. We can attached the status of each employee. 
+   
+```{r}
+
+# Join the Most Active Employee DataFrame with the Employee Table
+status_activity_df <- most_active_employee_df %>% left_join(employee_df_2, 
+        by='EmployeeName')
+
+# Keep the 2 most important columns. We don't need the Employee Name anymore
+columns <- c('Emails', 'Status')
+status_activity_df <- status_activity_df[columns]
+status_activity_df <- status_activity_df[order(status_activity_df$Emails, decreasing = TRUE), ]
+
+# Group every status to have the total of the activity
+status_activity_df <- status_activity_df %>%
+  group_by(Status) %>%
+  dplyr::summarise(Emails=sum(Emails))
+
+# Visualize the results using a bar plot
+breaks <- seq(0,140000,10000)
+
+status_activity_plot <- ggplot(status_activity_df, aes(x=reorder(Status, -Emails), Emails)) +
+  geom_bar(stat = 'identity', fill = '#054C70') +
+  labs(x = 'Status', y = 'E-Mail Activity') +
+  geom_text(
+    aes(label = Emails), 
+    size = 2.5,
+    vjust = 1.5,
+    hjust = 0.5, 
+    color = 'white') +
+    theme(axis.text.x = element_text(angle = 30, 
+                                   vjust = 1, 
+                                   hjust=1)) +
+  scale_y_continuous(breaks=breaks)
+
+status_activity_plot
+
+```
+   
+We can make a few observations and say that the employee, vice-president and general manager have the highest overall activity. But do these observations represent a valid result for answering our question: In which status are we most likely to be active?  
+  
+We can say "maybe" because we're missing two important components:   
+  - What is the size of each status? (number of people).   
+  - How is the distribution of each status? (Do we have outliers for example?).  
+  
+Without this information, we don't have a reasonnable answer to our question because, maybe, in the employee status we have 50 people but just 2 have an important activity. Or maybe the CEO is alone. Depending on this results the answer to our question will be different.
+  
+So we need to do some research before choosing the bar chart data as the answer to our question.
+  
+It's why, to answer our question, we have to:   
+  1. Check the size of each status.  
+  2. Compare the size of the status and its activity.  
+  3. Check the distribution of each status.  
+  
+Then we can say whether or not we can keep this data to answer our question.
+  
+  
+### 5.2.2 - Size of each status
+  
+We can check the number of people in each status to know if it will become problematic: 
+   
+```{r}
+
+# Create a small DataFrame with each status and the number of people tagged with that status
+number_status_df <- employee_df_2[,'Status']
+number_status_df <- frequency_table(number_status_df, 'TRUE')
+number_status_df <- number_status_df %>%
+                            dplyr::rename('Status' = 'column',
+                                   'People' = 'Freq')
+
+# Create a simple bar plot to visualize the results
+breaks <- seq(0,50, 5)
+
+number_status_plot <- ggplot(number_status_df, aes(x=reorder(Status, -People), People)) +
+  geom_bar(stat = 'identity', fill = '#054C70') +
+  labs(x = 'Employee Status', y = 'Number of People') +
+  geom_text(
+    aes(label = People), 
+    size = 2.5,
+    vjust = 1.5,
+    hjust = 0.5, 
+    color = 'white') +
+    theme(axis.text.x = element_text(angle = 30, 
+                                   vjust = 1, 
+                                   hjust=1)) +
+  scale_y_continuous(breaks=breaks)
+
+number_status_plot
+```
+  
+Now we have a better understanding of how each status is composed:   
+  - We have a significant number of people who are not labelled: “N/A”.  
+  - The number of employees is 2 times greater than vice-president status, and 3 times greater than director, manager and trader status.  
+  - We have few people with the status of CEO, chairman, managing director and in-house lawyer.  
+  
+Now we can compare the size of the status and its activity
+  
+  
+### 5.2.3 - Compare the size of the status and its activity
+  
+We can create a DataFrame that group the status with the number of people and the activity.  
+   
+```{r}
+
+# Join the 2 DataFrames
+
+status_people_activity_df <- number_status_df %>% left_join(status_activity_df, 
+        by='Status')
+
+status_people_activity_df
+
+```
+   
+We can plot 2 bar chart to visualize the data:
+  
+```{r}
+
+grid.arrange(number_status_plot, status_activity_plot, ncol=2)
+
+```
+  
+In the majority, more you have people in the status, more the activity is important. 
+  
+Now that we know the size of each status, we can visualize their distribution. 
+  
+  
+### 5.2.4 - Check the distribution of each status
+  
+To do it, we can create a boxplot for each status and each type of activity:   
+  - Sender - E-mails Sent  
+  - Recipient - E-mails Received  
+  - Overall - E-mails sent + E-mails received  
+  
+  
+**a - Sender Group**
+  
+```{r}
+
+# Create a specific DataFrame with the Employee Name, his status and his number of e-mails
+columns_list <- c('EmployeeName', 'Emails', 'Status')
+analysis_sender_df <- frequency_table_sender %>% left_join(employee_df_2, 
+        by='EmployeeName')
+analysis_sender_df <- analysis_sender_df[,columns_list]
+
+# Create the Box Plot
+boxplot(analysis_sender_df$Emails ~ analysis_sender_df$Status, 
+        main = 'Distribution of each status for the Sender Group',
+        xlab = "", ylab = "Number of E-mails", 
+        las=2, 
+        cex.axis=0.8)
+
+```
+  
+For the Sender Group we can notice that:   
+  - We have significant outliers in the Employee, N/A status.  
+  - We have one important outlier in the Manager Status.   
+  - The distribution appears to be right skewed (Positive) for the CEO, Employee and N/A. This means that the majority of people sent fewer than 500 e-mails.  
+  
+  
+**b - Recipient Group** 
+  
+**-> DataFrame**
+  
+```{r}
+
+# Create a specific DataFrame with the Employee Name, his status and his number of e-mails
+analysis_recipient_df <- frequency_table_recipient %>% left_join(employee_df_2, 
+        by='EmployeeName')
+analysis_recipient_df <- analysis_recipient_df[,columns_list]
+
+# Create the Box Plot
+boxplot(analysis_recipient_df$Emails ~ analysis_recipient_df$Status, 
+        main = 'Distribution of each status for the Recipient Group',
+        xlab = "", ylab = "Number of E-mails", 
+        las=2, 
+        cex.axis=0.8)
+
+```
+  
+For the Recipient Group we can notice that:   
+  - We have significant outliers in the Employee, N/A and Vice-President status.  
+  - We have one outliers in the Manager and Trader status.  
+  - The distribution appears to be right skewed (Positive) for Employee, Manager, and Trader. This means that the majority of people have sent a number of e-mails closer to 0.  
+  - Inversely, for the Managing Director, the distribution is left skewed (negative). This means that the majority of people sent fewer than 4000 e-mails.  
+  
+  
+**c - Overall Group** 
+  
+```{r}
+
+# Create a specific DataFrame with the Employee Name, his status and his number of e-mails
+analysis_overall_df <- most_active_employee_df %>% left_join(employee_df_2, 
+        by='EmployeeName')
+analysis_overall_df <- analysis_overall_df[,columns_list]
+
+# Create the Box Plot
+boxplot(analysis_overall_df$Emails ~ analysis_overall_df$Status, 
+        main = 'Distribution of each status for the Overall Group (Sender + Recipient)',
+        xlab = "", ylab = "Number of E-mails", 
+        las=2, 
+        cex.axis=0.8)
+
+```
+   
+For the Recipient Group we can notice that:   
+  - We have significant outliers in the Employee, N/A and Vice-President status.  
+  - We have one outliers in the Manager and Trader status.  
+  - The distribution appears to be right skewed (Positive) for Employee, Manager, N/A, Trader And Vice President. This means that the majority of people have sent a number of e-mails closer to 0.  
+  - Inversely, for the CEO, the Director and the Managing Director, the distribution is left skewed (negative).  
+  
+In conclusion, we can see that our three main statuses have the highest overall activity: Employee, N/A and Vice President also have the highest number of outliers.
+  
+  
+### 5.2.5 - In which status are we most likely to be active, in terms of sending and receiving e-mail?
+  
+We have now:  
+  - The size of each status.  
+  - The knowledge of the presence of outliers.  
+  
+So we can't just keep the data from our first bar chart, we need to compare the activity of each status using the median and mean, which will help us represent the likely activity of an employee in a status. 
+  
+To do that we will create a table for our 3 groups:   
+  - Sender  
+  - Recipient  
+  - Overall  
+  
+  
+**a - For the Sender Category**
+   
+```{r}
+# Create an Empty DataFrame 
+status_list <- as.list(unique(employee_df_2['Status']))
+status_sender_df <- data.frame()
+
+# Iterate over ou list of status calling ou function to create our Dataframe
+for (status in status_list[[1]]) {
+  # We call our Status Analysis function to have a DataFrame with the mean and the median
+  status_analysis_sender_df <- status_analysis(analysis_sender_df, status)
+  # We concatenate this 2 DataFrame
+  status_sender_df <- bind_rows(status_sender_df, status_analysis_sender_df)  
+}
+
+# Add a column with the total of e-mail sent
+analysis_sender_df_2 <- analysis_sender_df[,!names(analysis_sender_df) == 'EmployeeName']
+analysis_sender_df_2 <- analysis_sender_df_2 %>%
+  group_by(Status) %>%
+  dplyr::summarise(Emails=sum(Emails))
+status_sender_df <- analysis_sender_df_2 %>% left_join(status_sender_df, 
+        by='Status') 
+status_sender_df <- status_sender_df %>% 
+  dplyr::rename('TotalEmails' = 'Emails')
+
+# Add the column of the number of people in the status
+status_sender_df <- status_people_activity_df %>% left_join(status_sender_df, 
+        by='Status')
+status_sender_df <- status_sender_df[,!names(status_sender_df) == 'Emails']
+
+status_sender_df <- status_sender_df %>% 
+  relocate(Median) %>%
+  relocate(Status)
+status_sender_df <- status_sender_df[order(status_sender_df$Median, decreasing = TRUE),]
+
+status_sender_df
+
+```
+   
+  
+**b - For the Recipient Category** 
+   
+```{r}
+
+# Create an Empty DataFrame 
+status_list <- as.list(unique(employee_df_2['Status']))
+status_recipient_df <- data.frame()
+
+# Iterate over ou list of status calling ou function to create our Dataframe
+for (status in status_list[[1]]) {
+  # We call our Status Analysis function to have a DataFrame with the mean and the median
+  status_analysis_recipient_df <- status_analysis(analysis_recipient_df, status)
+  # We concatenate this 2 DataFrame
+  status_recipient_df <- bind_rows(status_recipient_df, status_analysis_recipient_df)  
+}
+
+# Add a column with the total of e-mail sent
+analysis_recipient_df_2 <- analysis_recipient_df[,!names(analysis_recipient_df) == 'EmployeeName']
+analysis_recipient_df_2 <- analysis_recipient_df_2 %>%
+  group_by(Status) %>%
+  dplyr::summarise(Emails=sum(Emails))
+status_recipient_df <- analysis_recipient_df_2 %>% left_join(status_recipient_df, 
+        by='Status') 
+status_recipient_df <- status_recipient_df %>% 
+  dplyr::rename('TotalEmails' = 'Emails')
+
+# Add the column of the number of people in the status
+status_recipient_df <- status_people_activity_df %>% left_join(status_recipient_df, 
+        by='Status')
+status_recipient_df <- status_recipient_df[,!names(status_recipient_df) == 'Emails']
+
+status_recipient_df <- status_recipient_df %>% 
+  relocate(Median) %>%
+  relocate(Status)
+status_recipient_df <- status_recipient_df[order(status_recipient_df$Median, decreasing = TRUE),]
+
+status_recipient_df
+
+```
+  
+  
+**c - For the Overall Category** 
+  
+```{r}
+# Create an Empty DataFrame 
+status_list <- as.list(unique(employee_df_2['Status']))
+status_overall_df <- data.frame()
+
+# Iterate over ou list of status calling ou function to create our Dataframe
+for (status in status_list[[1]]) {
+  # We call our Status Analysis function to have a DataFrame with the mean and the median
+  status_analysis_overall_df <- status_analysis(analysis_overall_df, status)
+  # We concatenate this 2 DataFrame
+  status_overall_df <- bind_rows(status_overall_df, status_analysis_overall_df)  
+}
+
+# Add a column with the total of e-mail sent
+analysis_overall_df_2 <- analysis_overall_df[,!names(analysis_overall_df) == 'EmployeeName']
+analysis_overall_df_2 <- analysis_overall_df_2 %>%
+  group_by(Status) %>%
+  dplyr::summarise(Emails=sum(Emails))
+status_overall_df <- analysis_overall_df_2 %>% left_join(status_overall_df, 
+        by='Status') 
+status_overall_df <- status_overall_df %>% 
+  dplyr::rename('TotalEmails' = 'Emails')
+
+# And add the column of the number of people in the status
+status_overall_df <- status_people_activity_df %>% left_join(status_overall_df, 
+        by='Status')
+status_overall_df <- status_overall_df[,!names(status_overall_df) == 'Emails']
+
+status_overall_df <- status_overall_df %>% 
+  relocate(Median) %>%
+  relocate(Status)
+status_overall_df <- status_overall_df[order(status_overall_df$Median, decreasing = TRUE),]
+
+status_overall_df
+
+```
+  
+  
+**d - Conclusion**
+  
+Initially, our aim was to analyze the relationship between e-mail activity and status. And more precisely, in which status are we most likely to be active?  
+  
+With a simple bar chart, we saw that Employee and N/A statuses were the most active in terms of sending and receiving e-mails, but we noticed two important things:   
+  - Every status has a different size (different number of people).  
+  - In every status, you have people with a different activity.  
+This information could impact the result. It's why using different techniques, we have shown that:  
+  - Each status have a different size.  
+  - We had "outliers" and in particular, in Employee, N/A status and Vice President status.This has shown us that some employees are busier than normal.  
+  
+Consequently, we conclude that the number of e-mails sent and received does not really represent the actual activity of the person in a status, but that it does represent the overall activity of the status. That's why, to answer our question, we used the median and the mean. These methods enabled us to understand one important thing: 
+  
+**Just because a status's overall activity is high, doesn't mean you're more likely to have high activity yourself.**
+  
+Managing Director, President and In House Lawyer status have fewer than 5 people, but the median is higher than that for Employee and N/A. positions.  
+  
+We can conclude from this that you're more likely to be active, in terms of sending and receiving e-mails, if you're a Managing Director, President, and In House Layer.
+  
+  
+## 5.3 - When was e-mail activity highest? And why?
+  
+For each message, in our Enron DataFrame we have:  
+ - The full date  
+ - The day   
+ - The month   
+ - The year  
+  
+To answer our question, we can divide the analysis into several stages:   
+  - Compare the global activity  
+  - Compare the monthly activity between years (for the busiest years)  
+  
+  
+### 5.3.1 - Compare the global activity
+  
+```{r}
+
+cat('The minimum year is', min(enron_df$DateYear), 'The maximum year is', max(enron_df$DateYear),'.')
+
+```
+  
+To start we can create a frequency table for the years: 
+  
+```{r}
+
+fq_years_df <- frequency_table(enron_df$DateYear, 'TRUE')
+fq_years_df <- fq_years_df %>% 
+  dplyr::rename('Years' = 'column', 
+         'Frequency' = 'Freq')
+fq_years_df
+
+```
+  
+```{r}
+
+# Keep our three first rows
+fq_years_df_2 <- fq_years_df[fq_years_df$Years %in% c(2000,2001,2002), ]
+
+
+# Create can plot our result
+breaks <- seq(0,1400000, 200000)
+ggplot(fq_years_df_2, aes(Years, Frequency)) +
+  geom_bar(stat = 'identity', fill = '#054C70') +
+  labs(x = 'Years', y = 'Number of E-mails sent') +
+  geom_text(
+    aes(label = Frequency), 
+    size = 4,
+    vjust = 2,
+    hjust = 0.5, 
+    color = 'white') +
+  scale_y_continuous(breaks=breaks)
+
+```
+  
+We can notice that we have a significant difference between our first three results and the others.   
+  
+So we have a specific period where e-mail activity has increased. This increase could be explained by a specific chronology of events (https://www.famous-trials.com/enron/1789-chronology):  
+  - 2000: Enron is experiencing strong growth and the company is called "the most innovative large company in the United States."  
+  1. 2001:  
+    - Some media outlets are wondering whether Enron is overpriced.  
+    - April: An analyst questions Enron's failure to release a balance sheet along with its earnings statements.  
+    - August: The CEO resigns.  
+    - August: The Vice-President sends an anonymous letter to the new CEO criticizing the company's accounting practices.  
+    - October: The SEC begins an informal probe of Enron.  
+    - End of the year: The stock price falls and the company is close to bankruptcy.  
+  2. 2002:  
+    - August: Enron accounting firm Arthur Arthur Andersen surrenders its CPA license and its 85,000 employees lose their jobs.  
+    - October: Andy Fastow is indicted on 78 counts of fraudulent conduct.  
+  
+And the story continues beyond our dates.  
+  
+So, the year 2001 is where the most activity is recorded, and when we look to the chronology it's logical. Indeed, 2000 was one of Enron's best years, but 2001 was the year of revelations, scandals, accusations, resignations, collapse in share prices and the beginning of a bankruptcy.  
+  
+  
+### 5.3.2 - Compare monthly activity between years
+  
+On the basis of these 3 years, it will be interesting to analyze more precisely the evolution of business by month.
+  
+  
+**a - Global activity over three years**
+  
+To begin with, we can analyze overall activity by month over the three years:
+  
+```{r}
+
+# Create a New DataFrame
+compare_m_y_df <- enron_df[enron_df$DateYear %in% c(2000,2001,2002),]
+
+# Extract Year and Month
+compare_m_y_df$MonthYear <- format(as.Date(compare_m_y_df$Date), '%Y-%m')
+
+# Group by Year and Month
+compare_m_y_df <- compare_m_y_df %>% group_by(MonthYear) %>% 
+  dplyr::summarise(EmailNumber=n(),.groups = 'drop') %>% 
+  as.data.frame()
+
+# Add the day 1 to have a date format
+compare_m_y_df$Date <- as.Date(paste(compare_m_y_df$MonthYear, "-01", sep=""))
+compare_m_y_df <- compare_m_y_df[,!names(compare_m_y_df) == 'MonthYear']
+
+# Add a column with a specific color for each year
+compare_m_y_df <- compare_m_y_df %>% 
+  mutate(Color = case_when(between(Date, as.Date('2000-01-01'), as.Date('2000-12-01')) ~ '#32CD32',
+                          between(Date, as.Date('2001-01-01'), as.Date('2001-12-01')) ~ '#D2042D',
+         between(Date, as.Date('2002-01-01'), as.Date('2002-12-01')) ~ '#0047AB',
+                              TRUE ~ '0'))
+
+# Plot the Years
+breaks_y <- seq(0,500000, 50000)
+ggplot(compare_m_y_df, aes(x=Date, y=EmailNumber)) +
+  geom_point(aes(colour=Color, group=1), size=1.5) +
+  geom_line(aes(colour=Color, group=1), linewidth=0.6) +
+  scale_color_identity(name = 'Years',
+                       breaks = c('#32CD32', '#D2042D', '#0047AB'),
+                       labels = c('2000', '2001', '2002'),
+                       guide = 'legend') +
+  scale_x_date(date_breaks = '3 month', date_labels = "%b %y") +
+  scale_y_continuous(breaks=breaks_y) + 
+  ggtitle('Evolution of e-mail activity over the last 3 years') +
+  labs(x = 'Date', y = 'Number of E-mails') +
+  theme(axis.text=element_text(size=7))
+
+```
+  
+  
+**b - Precise activity over three years**
+  
+We can add a more precise monthly comparison:
+  
+```{r}
+
+# Create a New DataFrame
+compare_m_y_df_2 <- enron_df[enron_df$DateYear %in% c(2000,2001,2002),]
+
+# Extract Year and Month
+compare_m_y_df_2$MonthYear <- format(as.Date(compare_m_y_df_2$Date), '%Y-%m')
+
+# Group by Year and Month
+compare_m_y_df_2 <- compare_m_y_df_2 %>% group_by(MonthYear) %>% 
+  dplyr::summarise(EmailNumber=n(),.groups = 'drop') %>% 
+  as.data.frame()
+
+# Add the day 1 to have a date format
+compare_m_y_df_2$Month <- as.Date(paste(compare_m_y_df_2$MonthYear, "-01", sep=""))
+compare_m_y_df_2 <- compare_m_y_df_2[,!names(compare_m_y_df_2) == 'MonthYear']
+
+# Extract the Year
+compare_m_y_df_2$Years <- format(compare_m_y_df_2$Month, format="%Y")
+
+# Extract the month in a numerical format
+compare_m_y_df_2$MonthNumber <- as.numeric(format(as.Date(compare_m_y_df_2$Month),"%m"))
+
+# Create an abreviation of the Months
+compare_m_y_df_2$Month  <- months(as.Date(compare_m_y_df_2$Month), abbreviate=TRUE) 
+
+# Plot the Years
+breaks_y <- seq(0,500000, 50000)
+ggplot(data = compare_m_y_df_2, aes(x = MonthNumber, y = EmailNumber, group = Years, colour=Years)) + 
+  geom_line() +
+  geom_point() +
+  scale_x_continuous(breaks = compare_m_y_df_2$MonthNumber, labels = compare_m_y_df_2$Month) +
+  scale_y_continuous(breaks=breaks_y) +
+  ggtitle('Evolution of the e-mail activity by Months') +
+  labs(x = 'Months', y = 'Number of E-mails') +
+  scale_color_manual(values=c('#32CD32', '#D2042D', '#0047AB'))
+
+```
+  
+  
+**c - Conclusion**
+  
+It's interesting because we can notice that:  
+  - During the year 2000, the activity was increasing step by step. At the end of this year we have a pick that could be explain by the fact that Enron finishes the tear with its stock price up 87% to $83.13, 70 times earnings and Fortune magazine calls it the most innovative large company in the United States.  
+  - The year 2001 was the most active. As we said, it was a turning point in Enron's history. But during this year we can notice that we have a significant pick of e-mails in October. This period marked a turning point in the Enron affair, as it was at this point that the accounting problems came to light:   
+    - Enron announces that it will have to restate its earnings from 1997 to 2000 to correct accounting violations.
+    - The SEC announces that it will investigate several Enron deals.  
+  - The year 2022 begins with a high number of e-mails and decreases from February onwards. This could correspond to the acceleration of the various judicial investigations.  
+  
+  
+## 5.4 - Analysis of the content of the messages
+  
+Analyzing the content of the messages, we would like to answer the question: What were the Enron employees talking about?
+  
+To do this, we need to work with the "subject" column in the Message DataFrame. 
+  
+We will go through various stages:  
+  1. Text Processing  
+  2. Most frequently used words  
+  3. Number of words per year  
+  4. Subjects Analysis  
+  
+We will use:  
+  - "tm" library which allows us to access a range of functions for processing text data.  
+  - "workcloud" library to create workcloud (most frequently used words).  
+  
+  
+### 5.4.1 - Text Processing
+  
+To start, we have to clean the text:
+  
+```{r, warning=FALSE,message=FALSE}
+
+# Export the subject column
+words_analysis <- message_df_2$Subject
+
+# Transform the text into a “corpus” class, enabling us to apply certain functions
+words_analysis_corpus <- Corpus(VectorSource(words_analysis))
+
+# Clean the data: remove punctuation, lowercase, remove Numbers, remove "Stopwords"
+words_analysis_corpus <- words_analysis_corpus %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(stripWhitespace)
+words_analysis_corpus <- tm_map(words_analysis_corpus, content_transformer(tolower))
+words_analysis_corpus <- tm_map(words_analysis_corpus, removeWords, stopwords("english"))
+
+# After some visualizations, We can remove a list of some specific words
+list_of_words <- c('new', 'date', 'hourahead', 'update', 'daily', 'weekly', 'today', 'start', 'revised', 'fwd', 'fw', 'master', 'inc', 'lay', 'list', 'call', 'news', 'access','change', 'informationsda', 'please', 'company', 'demand', 'codesite', 'management', 'hour', 'may', 'schedule', 'capacity', 'summary', 'week', 'notification', 'group', 'office', 'information', 'plan', 'final', 'corp', 'weekend', 'email', 'price', 'data', 'services', 'review', 'infos','status', 'day', 'info', 'confirmation', 'notice', 'free', 'response', 'proceeds', 'time', 'online', 'reminder', 'memo', 'document', 'donate', 'contact', 'message', 'action', 'project', 'updated', 'options', 'staff', 'release', 'global', 'comments', 'program', 'mentions', 'changes', 'natural', 'tw', 'mtg', 'business','pg', 'ofo', 'watch', 'center','lsda')
+
+words_analysis_corpus <- tm_map(words_analysis_corpus, function(x)removeWords(x,list_of_words))
+
+```
+  
+  
+### 5.4.2 - Most frequently used words
+  
+    
+**a - Wordcloud**
+  
+Now, with cleaner text, we can visualize the most frequently used words:
+  
+```{r}
+
+set.seed(123456)
+wordcloud(words_analysis_corpus, max.words = 100, colors = brewer.pal(8, 'Dark2'), random.order=FALSE, rot.per=0)
+
+```
+  
+This visualization helps us better understand the most frequently used word but we don't know the exact proportion of the word's use.
+  
+  
+**b - Word count DataFrame**
+  
+```{r, warning=FALSE,message=FALSE}
+
+# Create a tibble that is near to a data frame
+words_count_df <- tibble(Text = words_analysis)
+
+# Create a tibble with one row by word
+words_count_df <- words_count_df %>% 
+                  unnest_tokens(output = word, input = Text) 
+
+# Remove stop words
+words_count_df <- words_count_df %>%
+                   anti_join(stop_words) 
+
+# Create a tibble with each word associated with the number of times it has been used
+words_count_df_2 <- words_count_df %>% dplyr::count(word, sort = TRUE)
+
+# Rename columns 
+words_count_df_2 <- words_count_df_2 %>% 
+  dplyr::rename('Words' = 'word', 
+         'Frequency' = 'n')
+
+# Continue to clean the data by deleting the numerica values 
+words_count_df_2$Words <- gsub('[[:digit:]]+', '', words_count_df_2$Words)
+words_count_df_2$Words <- str_replace_all(words_count_df_2[['Words']], "[[:punct:]]", "")
+words_count_df_2 <- words_count_df_2[words_count_df_2$Words != '',]
+words_count_df_2 <- words_count_df_2[!(words_count_df_2$Words %in% list_of_words),]
+
+words_count_df_2
+
+```
+  
+To finish, we can plot the result:
+  
+```{r}
+top_number <- 10
+words_analysis_plot <- words_count_df_2 %>% top_n(top_number)
+
+ggplot(words_analysis_plot, aes(x=reorder(Words, Frequency), Frequency)) + 
+  geom_bar(stat = 'identity', fill = '#054C70') +
+  coord_flip() + 
+  labs(x = 'Words', y = 'Frequency') +
+  geom_text(
+  aes(label = Frequency), 
+  size = 2.5,
+  vjust = 0.5,
+  hjust = 1.5, 
+  color = 'white') +
+  theme(axis.text = element_text(face='bold')) +
+  ggtitle('Most frequently used words')
+
+```
+  
+  
+### 5.4.3 - Number of words per year
+  
+It will be interesting to visualize the most used words depending of the period of time.
+  
+  
+**a - Create a DataFrame**
+  
+The first is to create a specific DataFrame with the count for each words depending of the year:
+  
+```{r, warning=FALSE,message=FALSE}
+
+# We create 3 Dataframe for each year
+words_count_00 <- message_df_2[message_df_2$DateYear == 2000, ]
+words_count_01 <- message_df_2[message_df_2$DateYear == 2001, ]
+words_count_02 <- message_df_2[message_df_2$DateYear == 2002, ]
+
+# We follow the same process for each Year
+# Year 2000
+words_count_00 <- words_count_00$Subject
+words_count_00_df <- tibble(Text = words_count_00)
+words_count_00_df <- words_count_00_df %>% 
+                  unnest_tokens(output = word, input = Text) 
+words_count_00_df <- words_count_00_df %>%
+                   anti_join(stop_words) 
+words_count_00_df <- words_count_00_df %>% dplyr::count(word, sort = TRUE)
+words_count_00_df <- words_count_00_df %>% 
+  dplyr::rename('Words' = 'word', 
+         'Year2000' = 'n')
+words_count_00_df$Words <- gsub('[[:digit:]]+', '', words_count_00_df$Words)
+words_count_00_df <- words_count_00_df[words_count_00_df$Words != '',]
+words_count_00_df <- words_count_00_df[!(words_count_00_df$Words %in% list_of_words),]
+words_count_00_df <- as.data.frame(apply(words_count_00_df,2, function(x) gsub("\\s+", "", x)))
+
+# Year 2001
+words_count_01 <- words_count_01$Subject
+words_count_01_df <- tibble(Text = words_count_01)
+words_count_01_df <- words_count_01_df %>% 
+                  unnest_tokens(output = word, input = Text) 
+words_count_01_df <- words_count_01_df %>%
+                   anti_join(stop_words) 
+words_count_01_df <- words_count_01_df %>% dplyr::count(word, sort = TRUE)
+words_count_01_df <- words_count_01_df %>% 
+  dplyr::rename('Words' = 'word', 
+         'Year2001' = 'n')
+words_count_01_df$Words <- gsub('[[:digit:]]+', '', words_count_01_df$Words)
+words_count_01_df <- words_count_01_df[words_count_01_df$Words != '',]
+words_count_01_df <- words_count_01_df[!(words_count_01_df$Words %in% list_of_words),]
+words_count_01_df <- as.data.frame(apply(words_count_01_df,2, function(x) gsub("\\s+", "", x)))
+
+# Year 2002
+words_count_02 <- words_count_02$Subject
+words_count_02_df <- tibble(Text = words_count_02)
+words_count_02_df <- words_count_02_df %>% 
+                  unnest_tokens(output = word, input = Text) 
+words_count_02_df <- words_count_02_df %>%
+                   anti_join(stop_words) 
+words_count_02_df <- words_count_02_df %>% dplyr::count(word, sort = TRUE)
+words_count_02_df <- words_count_02_df %>% 
+  dplyr::rename('Words' = 'word', 
+         'Year2002' = 'n')
+words_count_02_df$Words <- gsub('[[:digit:]]+', '', words_count_02_df$Words)
+words_count_02_df <- words_count_02_df[words_count_02_df$Words != '',]
+words_count_02_df <- words_count_02_df[!(words_count_02_df$Words %in% list_of_words),]
+words_count_02_df <- as.data.frame(apply(words_count_02_df,2, function(x) gsub("\\s+", "", x)))
+
+# Join the three DafaFrame
+words_count_years_df <- words_count_01_df %>% left_join(words_count_00_df, 
+        by='Words')
+words_count_years_df <- words_count_years_df %>% left_join(words_count_02_df, 
+        by='Words') %>%
+  distinct(Words, Year2000, Year2001, Year2001, .keep_all =TRUE)
+
+# Reorder the final DataFrame
+words_count_years_df <- words_count_years_df[, c('Words', 'Year2000', 'Year2001', 'Year2002')]
+
+# Remove the duplicates
+words_count_years_df_2 = words_count_years_df[!duplicated(words_count_years_df$Words),]
+
+# Convert each year column into numeric format
+words_count_years_df_2$Year2001 <- as.numeric(as.character(words_count_years_df_2$Year2001))
+words_count_years_df_2$Year2000 <- as.numeric(as.character(words_count_years_df_2$Year2000))
+words_count_years_df_2$Year2002 <- as.numeric(as.character(words_count_years_df_2$Year2002))
+
+# Order each column starting with 2001, as this is the most important year.
+words_count_years_df_2 <- words_count_years_df_2[order(words_count_years_df_2$Year2001,
+                                                                     words_count_years_df_2$Year2000,
+                                                                     words_count_years_df_2$Year2002, decreasing=TRUE), ]
+
+
+# Select the top 10 rows
+words_count_years_df_2 <- words_count_years_df_2[1:10, ]
+
+# Rename the columns
+words_count_years_df_2 <- words_count_years_df_2 %>% 
+  dplyr::rename('2000' = 'Year2000', 
+         '2001' = 'Year2001',
+         '2002' = 'Year2002')
+
+# Transform the Dataframe into Melt Format
+words_count_years_melt <- reshape2::melt(words_count_years_df_2, id = c('Words'))
+words_count_years_melt$value <- as.numeric(words_count_years_melt$value)
+words_count_years_melt <- words_count_years_melt %>% 
+  dplyr::rename('Years' = 'variable', 
+         'Count' = 'value')
+
+```
+  
+  
+**b - Create a Bar Chart**
+  
+Now, the first option is to create a bar chart with the most frequently used words over the years:
+  
+```{r}
+
+breaks_words <- seq(0, 7500, 1000)
+
+ggplot(words_count_years_melt, aes(Words, Count, fill = Years)) +
+  geom_bar(stat='identity', position = "dodge") + 
+  labs(title='Words used by year') +
+  ylab('Number of occurrences of the word') +
+  xlab('Words') +
+  theme(axis.text.x = element_text(angle = 30, 
+                                   vjust = 1, 
+                                   hjust=1)) +
+  scale_y_continuous(breaks=breaks_words) +
+  scale_fill_manual(values = c("#40B5AD","#054C70", '#4682B4'))
+
+```
+  
+  
+**c - Create a Heatmap**
+  
+The second option is to create a heat map with the most frequently used words over the years:
+  
+```{r}
+
+ggplot(words_count_years_melt, aes(Years, Words, fill = Count)) + 
+  geom_tile() +
+  scale_fill_gradient(low = '#FAF9F6', high = '#00008B', 
+                      labels = c('0', '1500', '3000', '4500', '7500')) +
+  ylab('Words') +
+  xlab('Years') +
+  ggtitle('Words used by year') +
+  scale_colour_brewer("Diamond\nclarity")+
+  guides(fill = guide_colourbar(title = 'Number of occurrences \nof the word'))
+
+
+```
+  
+  
+### 5.4.4 - Subjects Analysis
+  
+The most frequently used words help us to understand or guess the subject of various e-mails and conversations:  
+	- We have the lexical field of the oil and gas industry: gas, energy, power, electric...  
+	- We can identify the different types of Enron activities: meeting, conference, presentation, training...  
+	- We have the lexical field of business and finance: market, credit, business, contract, stock, expense, marketing...  
+	- We can identify the type of messages: agreement, request, approval, urgent, problems, breakdown.  
+	- We can identify Enron's various partners: Eol, Isda...
+  
+By combining these results with the number of occurrences of specific words, we can guess that:   
+	- The company was a business in the oil and gas industry.  
+	- In terms of organization, Enron had many meetings.  
+	- One of the most talked-about topics was business, sales and finance, as we have specific words often used: stock, market, credit, sales, deal, draft...  
+	- We have some information on the company with “ken” (Kenneth Lee Lay), who was the CEO, and Houston, where the head office was located.  
+	- We can see that Enron had to deal with problems and breakdowns.  
+  
+Looking at the number of word occurrences by year is very interesting, as you can find trends.  
+Of course, 2021 is the most active year in terms of activity, so it's normal to have the majority of words used during this period.  
+We have less activity during 2002, but we can see that we have less “general” communication about the company, which seems logical since the company was going through various legal investigations. For example, the much-used word “meeting” is hardly used at all in 2022.  
+<br/>
+<br/>
+  
+  
