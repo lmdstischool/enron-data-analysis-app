@@ -14,15 +14,14 @@ The Readme is an index that explains the purpose of each file and helps you unde
 2. enron_notebook.html:
 	- Enron's notebook in HTML format.
 
-3. Enron.Rdata:
-	- The Enron Dataset File.
-
-4. back_end_workload.R:
+3. back_end_workload.R:
 	- The file to be launched first in the same environment as the application.
 	- Used to contain most of the workload in an attempt to make the application run faster.
 
-5. app.R: 
+4. app.R: 
 	- The Shiny Application.
+
+5. Download the dataset: https://www.kaggle.com/datasets/wcukierski/enron-email-dataset or https://www.cs.cmu.edu/~enron/
 
 ## How to Install and Run the App
 
