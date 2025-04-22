@@ -21,18 +21,18 @@ The Readme is an index that explains the purpose of each file and helps you unde
 4. app.R: 
 	- The Shiny Application.
 
-5. Download the dataset: https://www.kaggle.com/datasets/wcukierski/enron-email-dataset or https://www.cs.cmu.edu/~enron/
 
 ## How to Install and Run the App
 
-1. It's important to have in the same directory: 
+1. Download the dataset: https://www.kaggle.com/datasets/wcukierski/enron-email-dataset or https://www.cs.cmu.edu/~enron/
+2. It's important to have in the same directory: 
 	- The Enron.Rdata file
 	- The back_end_workload.R file
 	- The app.R file
-2. Open the back_end_workload.R file.
-3. One the app.R file in the same environment.
-4. Run the back_end_workload.R file (takes approximately 5-7 minutes. The most time-consuming part is word processing.)
-5. Launch the application, in the same environment, by clicking on the “Run App” button.
+3. Open the back_end_workload.R file.
+4. One the app.R file in the same environment.
+5. Run the back_end_workload.R file (takes approximately 5-7 minutes. The most time-consuming part is word processing.)
+6. Launch the application, in the same environment, by clicking on the “Run App” button.
 
 
 ## How to improve the app?
