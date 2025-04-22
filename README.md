@@ -26,7 +26,7 @@ The Readme is an index that explains the purpose of each file and helps you unde
 
 1. Download the dataset: https://www.kaggle.com/datasets/wcukierski/enron-email-dataset or https://www.cs.cmu.edu/~enron/
 2. It's important to have in the same directory: 
-	- The Enron.Rdata file
+	- The Enron Dataset
 	- The back_end_workload.R file
 	- The app.R file
 3. Open the back_end_workload.R file.
